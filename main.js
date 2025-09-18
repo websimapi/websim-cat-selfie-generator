@@ -16,6 +16,7 @@ let paused = false;
 let imageReady = false;
 let nudge = { x: 0, y: 0 };
 let nudgeTarget = { x: 0, y: 0 };
+let recording = false;
 
 function setupGL() {
   gl = canvas.getContext("webgl", { preserveDrawingBuffer: false, antialias: true });
@@ -124,7 +125,7 @@ function animate(t) {
 function setLoading(isLoading) {
   loading.hidden = !isLoading;
   placeholder.hidden = isLoading || imageReady;
-  genBtn.disabled = isLoading;
+  genBtn.disabled = isLoading || recording;
   if (isLoading) simulateProgress();
 }
 
@@ -236,6 +237,61 @@ function setupInteractions() {
   });
 }
 
+function pickMimeType() {
+  const types = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+  for (const t of types) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return "";
+}
+
+async function startRecording(seconds = 6) {
+  if (!imageReady || recording) return;
+  recording = true;
+  genBtn.disabled = true;
+  stopBtn.disabled = true;
+
+  const fps = 30;
+  const stream = canvas.captureStream(fps);
+  const mimeType = pickMimeType();
+  let recorder;
+  try {
+    recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 6_000_000 } : { videoBitsPerSecond: 6_000_000 });
+  } catch (e) {
+    alert("Recording not supported on this device/browser.");
+    recording = false;
+    genBtn.disabled = false;
+    stopBtn.disabled = false;
+    return;
+  }
+
+  const chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: mimeType || "video/webm" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cat-selfie.webm";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    recording = false;
+    genBtn.disabled = false;
+    stopBtn.disabled = false;
+  };
+
+  recorder.start();
+  setTimeout(() => {
+    if (recorder.state !== "inactive") recorder.stop();
+  }, seconds * 1000);
+}
+
 function init() {
   setupGL();
   setupInteractions();
@@ -243,7 +299,7 @@ function init() {
   genBtn.addEventListener("click", async () => {
     await generateImage(currentAspect());
   });
+  document.getElementById("recBtn").addEventListener("click", () => startRecording(6));
 }
 
 init();
-
